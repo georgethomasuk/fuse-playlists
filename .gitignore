@@ -1,0 +1,13 @@
+# Extension signing key — NEVER commit. Pinned public key lives in extension/manifest.json
+# (gives a stable extension ID); this private key is only needed to repack the signed .crx.
+extension-signing-key.pem
+*.pem
+
+# Build output
+dist/
+*.crx
+
+# OS / editor cruft
+.DS_Store
+*.log
+node_modules/

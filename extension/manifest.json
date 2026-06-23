@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Fuse — Spotify bridge for Claude",
+  "version": "0.4.0",
+  "description": "Lets the Fuse music app (running inside a Claude artifact) talk to your Spotify account. Only runs on Claude.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAoD5cWHhjG08arAwLqnT5SIpkqSCW11b7+kDupKg62k7LJGMlK2HWmfuCgHP+mT31IKseH7ulCn+vza1MSgFqWPaLrbNdiIPlWalgvWApi4NKubi6qrKfGeYgfxh8DaSsOhIDSdCQmvHchNxzjU35teQVSclZMlq12Oq0WxGS4idDfQOzXy/Sbye9L0jnBbJ7s+a9jYo1aHhbKsHfcruuYwK7hsr5H3BFm8tBbblczTQMpNJeN0Yx3AqePAJ2IduOfwB2M2j2AQqTUciK0uEh1w/0vgBDx9t88tbOcx5pELdl9HnofcasxPKnqDQfU8A5QFx4VdFwPNMWfoouhfthBQIDAQAB",
+  "permissions": ["identity", "storage"],
+  "host_permissions": [
+    "https://api.spotify.com/*",
+    "https://accounts.spotify.com/*",
+    "https://*.scdn.co/*",
+    "https://*.spotifycdn.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.claudeusercontent.com/*",
+        "https://claude.ai/*"
+      ],
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true,
+      "run_at": "document_idle",
+      "js": ["content.js"]
+    }
+  ]
+}
