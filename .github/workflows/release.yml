@@ -1,0 +1,81 @@
+name: Release
+
+# Publishes a GitHub Release with the packaged extension and the artifact .jsx.
+# Trigger by pushing a version tag (e.g. `git tag v0.4.0 && git push origin v0.4.0`),
+# or run manually from the Actions tab and supply a tag.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.4.0). Created at the current commit if it doesn't exist."
+        required: true
+
+permissions:
+  contents: write # required to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Resolve tag & version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Warn if manifest version != tag
+        run: |
+          MV=$(node -p "require('./extension/manifest.json').version")
+          if [ "$MV" != "${{ steps.ver.outputs.version }}" ]; then
+            echo "::warning title=Version mismatch::manifest.json is $MV but the tag is ${{ steps.ver.outputs.version }}. Bump extension/manifest.json before tagging."
+          fi
+
+      - name: Package extension (load-unpacked zip) + stage artifact
+        run: |
+          mkdir -p dist
+          (cd extension && zip -rq "../dist/fuse-extension-${{ steps.ver.outputs.tag }}.zip" . -x '*.DS_Store')
+          cp app/fuse-companion.jsx dist/fuse-companion.jsx
+
+      # The signed .crx is optional: only built if the signing key is configured as a
+      # repo secret (Settings → Secrets and variables → Actions → EXTENSION_SIGNING_KEY).
+      - name: Detect signing key
+        id: signkey
+        env:
+          KEY: ${{ secrets.EXTENSION_SIGNING_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Build signed .crx
+        if: steps.signkey.outputs.present == 'true'
+        env:
+          KEY: ${{ secrets.EXTENSION_SIGNING_KEY }}
+        run: |
+          printf '%s' "$KEY" > signing.pem
+          npm install --no-save crx3@^2.0.0
+          node scripts/build-crx.cjs signing.pem "dist/fuse-extension-${{ steps.ver.outputs.tag }}.crx"
+          rm -f signing.pem
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Fuse ${{ steps.ver.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            dist/fuse-extension-*.zip
+            dist/fuse-extension-*.crx
+            dist/fuse-companion.jsx

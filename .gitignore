@@ -10,4 +10,7 @@ dist/
 # OS / editor cruft
 .DS_Store
 *.log
+
+# Release tooling (one dev dep; CI installs it on demand, version pinned in package.json)
 node_modules/
+package-lock.json

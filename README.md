@@ -61,6 +61,37 @@ To hand the whole thing to a friend, point them at **[SETUP.md](./SETUP.md)**.
 - **Organised + version-controlled.** Three hand-edited files and a stray `.jsx` became a git repo
   with `extension/`, `app/`, and docs.
 
+## Releases (GitHub)
+
+A release is cut by **pushing a version tag**; GitHub Actions
+([`.github/workflows/release.yml`](./.github/workflows/release.yml)) packages everything and
+publishes a Release with these assets:
+
+| Asset | What it is |
+| --- | --- |
+| `fuse-extension-v0.4.0.zip` | The extension, ready to unzip and **Load unpacked**. |
+| `fuse-companion.jsx` | The artifact to paste into a Claude artifact. |
+| `fuse-extension-v0.4.0.crx` | Signed `.crx` — **only if** the signing key secret is configured (see below). |
+
+To cut a release:
+
+```bash
+# 1. Bump the version in extension/manifest.json (and package.json) to match the tag.
+# 2. Tag and push:
+git tag v0.4.0
+git push origin v0.4.0
+```
+
+The workflow warns if the tag doesn't match `extension/manifest.json`'s version. You can also run
+it manually from the **Actions** tab (supply a tag).
+
+**To also publish the signed `.crx`:** add the private key as a repo secret named
+`EXTENSION_SIGNING_KEY` (Settings → Secrets and variables → Actions → New repository secret, paste
+the full contents of `extension-signing-key.pem`). Without it, the `.zip` + `.jsx` are still
+published — the `.crx` step is simply skipped.
+
+Locally, `./scripts/pack.sh` (or `npm run build:crx`) produces the same signed `.crx` into `dist/`.
+
 ## The signing key
 
 `extension-signing-key.pem` is the private key that pins the extension ID. It is **gitignored** —
