@@ -14,3 +14,6 @@ dist/
 # Release tooling (one dev dep; CI installs it on demand, version pinned in package.json)
 node_modules/
 package-lock.json
+
+# Playwright MCP test output (local dev smoke tests)
+.playwright-mcp/

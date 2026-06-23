@@ -273,9 +273,8 @@ export default function App() {
   const [seeds, setSeeds] = useState([]);          // up to 3 {key,type,name,sub,uri,image}
   const [fuseBusy, setFuseBusy] = useState(false);
   const [fuseStatus, setFuseStatus] = useState("");
-  const [fusion, setFusion] = useState(null);      // {name, concept}
-  const [fuseRecs, setFuseRecs] = useState([]);
-  const [fuseLink, setFuseLink] = useState(null);
+  const [fuses, setFuses] = useState([]);          // history: [{ id, name, concept, recs, seeds, link }]
+  const [activeFuseId, setActiveFuseId] = useState(null);
   const [fuseCreating, setFuseCreating] = useState(false);
 
   const [searchQ, setSearchQ] = useState("");
@@ -443,7 +442,7 @@ export default function App() {
 
   const fuse = async () => {
     if (seeds.length < 2) return;
-    setFuseBusy(true); setFusion(null); setFuseRecs([]); setFuseLink(null);
+    setFuseBusy(true);
     setFuseStatus("Reading the identity of your picks…");
     try {
       const seedDesc = seeds.map((s) => s.type === "track" ? `"${s.name}" by ${s.sub}` : `${s.name} (artist)`).join("   +   ");
@@ -472,7 +471,6 @@ export default function App() {
       let parsed = null;
       try { parsed = JSON.parse(clean); } catch { const m = clean.match(/\{[\s\S]*\}/); if (m) parsed = JSON.parse(m[0]); }
       if (!parsed || !Array.isArray(parsed.tracks) || !parsed.tracks.length) throw new Error("Claude's reply couldn't be parsed.");
-      setFusion({ name: parsed.name || "Fusion", concept: parsed.concept || "" });
       const exclArtists = new Set();
       const exclTrackIds = new Set();
       seeds.forEach((s) => { (s.artistNames || []).forEach((n) => exclArtists.add(n.toLowerCase())); if (s.type === "track" && s.id) exclTrackIds.add(s.id); });
@@ -494,28 +492,34 @@ export default function App() {
         await new Promise((res) => setTimeout(res, 120));
       }
       if (!resolved.length) throw new Error("Everything resolved back to your originals — try re-fusing.");
-      setFuseRecs(resolved);
+      const newFuse = { id: "f" + Date.now(), name: parsed.name || "Fusion", concept: parsed.concept || "", recs: resolved, seeds: [...seeds], link: null };
+      setFuses((cur) => [newFuse, ...cur]);
+      setActiveFuseId(newFuse.id);
+      setView("fuse");
       setFuseStatus(`${resolved.length} tracks ready${skipped ? ` · skipped ${skipped} that circled back to your picks` : ""}.`);
     } catch (e) { setFuseStatus(e.message || "Something went wrong."); }
     setFuseBusy(false);
   };
 
+  const activeFuse = fuses.find((f) => f.id === activeFuseId) || null;
+
   const createFusePlaylist = async () => {
-    if (!fuseRecs.length) return;
+    if (!activeFuse?.recs.length) return;
     setFuseCreating(true); setFuseStatus("Creating playlist…");
     try {
-      const name = (fusion?.name || "Fusion").slice(0, 90);
-      const desc = `${fusion?.concept || ""} — fused with Claude from: ${seeds.map((s) => s.name).join(", ")}`.slice(0, 290);
+      const name = (activeFuse.name || "Fusion").slice(0, 90);
+      const desc = `${activeFuse.concept || ""} — fused with Claude from: ${activeFuse.seeds.map((s) => s.name).join(", ")}`.slice(0, 290);
       const pl = await api("/me/playlists", { method: "POST", body: { name, description: desc, public: false } });
-      const uris = fuseRecs.map((t) => t.uri);
+      const uris = activeFuse.recs.map((t) => t.uri);
       try { await api(`/playlists/${pl.id}/tracks`, { method: "POST", body: { uris } }); }
       catch { await api(`/playlists/${pl.id}/items`, { method: "POST", body: { uris } }); }
-      setFuseLink(pl.external_urls?.spotify); setFuseStatus("Playlist saved to your library.");
+      setFuses((cur) => cur.map((f) => f.id === activeFuse.id ? { ...f, link: pl.external_urls?.spotify } : f));
+      setFuseStatus("Playlist saved to your library.");
     } catch (e) { setFuseStatus(e.message || "Couldn't create the playlist."); }
     setFuseCreating(false);
   };
 
-  const playFuse = () => fuseRecs.length && cmd("/me/player/play", { method: "PUT", body: { uris: fuseRecs.map((t) => t.uri) } });
+  const playFuse = () => activeFuse?.recs.length && cmd("/me/player/play", { method: "PUT", body: { uris: activeFuse.recs.map((t) => t.uri) } });
 
   const runSearch = useCallback(async (q) => {
     try {
@@ -617,12 +621,13 @@ export default function App() {
             <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.green, display: "grid", placeItems: "center" }}><Blend size={17} color="#000" /></div>
             <span style={{ fontWeight: 800, fontSize: 15 }}>Fuse</span>
           </div>
-          {[["home", "Your library", Home], ["discover", "Discover", Sparkles], ["logs", "Logs", Terminal]].map(([k, label, Icon]) => {
-            const errCount = k === "logs" ? logs.filter((l) => l.status === "error").length : 0;
+          {[["home", "Your library", Home], ["fuse", "Fuses", Blend], ["discover", "Discover", Sparkles], ["logs", "Logs", Terminal]].map(([k, label, Icon]) => {
+            const badge = k === "logs" ? logs.filter((l) => l.status === "error").length : k === "fuse" ? fuses.length : 0;
+            const badgeBg = k === "logs" ? "#f15e6c" : C.green;
             return (
               <button key={k} onClick={() => setView(k)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 12px", borderRadius: 6, background: "none", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 700, color: view === k ? C.text : C.sub, textAlign: "left" }}>
                 <Icon size={20} /> {label}
-                {errCount > 0 && <span style={{ marginLeft: "auto", background: "#f15e6c", color: "#000", fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "1px 7px" }}>{errCount}</span>}
+                {badge > 0 && <span style={{ marginLeft: "auto", background: badgeBg, color: "#000", fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "1px 7px" }}>{badge}</span>}
               </button>
             );
           })}
@@ -670,7 +675,7 @@ export default function App() {
                     </div>
                   )}
                   {seeds.length === 0 && <div style={{ color: C.faint, fontSize: 12.5, marginTop: 8 }}>Pick at least 2 from below. Fuse always returns different artists — the music between your choices.</div>}
-                  {fuseStatus && <div style={{ display: "flex", alignItems: "center", gap: 8, color: fuseRecs.length ? C.green : C.sub, fontSize: 13, marginTop: 12 }}>{fuseBusy && <Spinner size={14} />}{!fuseBusy && fuseRecs.length > 0 && <Check size={15} />}{fuseStatus}</div>}
+                  {fuseStatus && <div style={{ display: "flex", alignItems: "center", gap: 8, color: C.sub, fontSize: 13, marginTop: 12 }}>{fuseBusy && <Spinner size={14} />}{fuseStatus}</div>}
                 </div>
 
                 {/* Search any of Spotify */}
@@ -696,27 +701,6 @@ export default function App() {
                       </>
                     )}
                     {!searchBusy && !searchArtists.length && !searchTracks.length && <div style={{ color: C.faint, fontSize: 14, padding: "8px 2px" }}>No matches for "{searchQ.trim()}".</div>}
-                  </div>
-                )}
-
-                {/* Fusion result */}
-                {fusion && (
-                  <div style={{ marginBottom: 24 }}>
-                    <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 }}>
-                      <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}><Blend size={18} color={C.green} />{fusion.name}</div>
-                      <div style={{ fontSize: 14, color: C.sub, lineHeight: 1.55 }}>{fusion.concept}</div>
-                    </div>
-                    {fuseRecs.length > 0 && (
-                      <>
-                        <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
-                          <GreenBtn onClick={createFusePlaylist} disabled={fuseCreating} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 22px" }}><Plus size={16} /> {fuseCreating ? "Saving…" : "Save as playlist"}</GreenBtn>
-                          <button onClick={playFuse} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: `1px solid ${C.faint}`, color: C.text, borderRadius: 500, padding: "10px 22px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}><Play size={15} /> Play on my device</button>
-                          <button onClick={fuse} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "none", color: C.sub, fontSize: 14, cursor: "pointer" }}><RefreshCw size={15} /> Re-fuse</button>
-                        </div>
-                        {fuseLink && <a href={fuseLink} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.green, fontSize: 14, marginBottom: 12 }}>Open playlist in Spotify <ExternalLink size={14} /></a>}
-                        <div>{fuseRecs.map((t, i) => <TrackRow key={"fuse" + i} track={t} index={i} onPlay={playTrack} onOpen={openExternal} reason={t.reason} />)}</div>
-                      </>
-                    )}
                   </div>
                 )}
 
@@ -754,6 +738,45 @@ export default function App() {
                         return list.slice(0, 15).map((t) => { const it = trackSeed(t); return <Selectable key={"r" + it.key} item={it} selected={seedSelected(it.key)} disabled={seeds.length >= 3} onToggle={toggleSeed} onPlay={() => playTrack(t)} />; });
                       })()}
                     </div>
+                  </>
+                )}
+              </>
+            )}
+            {view === "fuse" && (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}><Blend size={24} color={C.green} /><h1 style={{ fontSize: 26, fontWeight: 800, margin: 0 }}>Fuses</h1></div>
+                <p style={{ color: C.sub, fontSize: 14, lineHeight: 1.5, maxWidth: 560, margin: "0 0 18px" }}>The playlists you've fused this session. Pick seeds on <strong style={{ color: C.text }}>Your library</strong> and hit Fuse to make a new one.</p>
+                {fuses.length === 0 ? (
+                  <div style={{ marginTop: 40, textAlign: "center", color: C.faint }}><Blend size={40} style={{ margin: "0 auto 12px", opacity: 0.5 }} /><p style={{ fontSize: 15 }}>No fuses yet — pick 2–3 artists or tracks from Your library and hit Fuse.</p></div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 22 }}>
+                      {fuses.map((f) => {
+                        const sel = f.id === activeFuseId;
+                        return (
+                          <button key={f.id} onClick={() => setActiveFuseId(f.id)}
+                            style={{ textAlign: "left", background: C.card, border: `1px solid ${sel ? C.green : C.line}`, borderRadius: 10, padding: "10px 14px", cursor: "pointer", color: C.text, minWidth: 180, maxWidth: 260 }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.name}</div>
+                            <div style={{ fontSize: 12, color: C.sub, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f.recs.length} tracks · {f.seeds.map((s) => s.name).join(", ")}</div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {activeFuse && (
+                      <div style={{ marginBottom: 24 }}>
+                        <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 }}>
+                          <div style={{ fontSize: 18, fontWeight: 800, marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}><Blend size={18} color={C.green} />{activeFuse.name}</div>
+                          <div style={{ fontSize: 14, color: C.sub, lineHeight: 1.55 }}>{activeFuse.concept}</div>
+                        </div>
+                        <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                          <GreenBtn onClick={createFusePlaylist} disabled={fuseCreating} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 22px" }}><Plus size={16} /> {fuseCreating ? "Saving…" : "Save as playlist"}</GreenBtn>
+                          <button onClick={playFuse} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: `1px solid ${C.faint}`, color: C.text, borderRadius: 500, padding: "10px 22px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}><Play size={15} /> Play on my device</button>
+                          <button onClick={fuse} disabled={fuseBusy || seeds.length < 2} style={{ display: "flex", alignItems: "center", gap: 8, background: "transparent", border: "none", color: C.sub, fontSize: 14, cursor: "pointer" }}><RefreshCw size={15} /> {fuseBusy ? "Fusing…" : "Re-fuse"}</button>
+                        </div>
+                        {activeFuse.link && <a href={activeFuse.link} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: C.green, fontSize: 14, marginBottom: 12 }}>Open playlist in Spotify <ExternalLink size={14} /></a>}
+                        <div>{activeFuse.recs.map((t, i) => <TrackRow key={"fuse" + i} track={t} index={i} onPlay={playTrack} onOpen={openExternal} reason={t.reason} />)}</div>
+                      </div>
+                    )}
                   </>
                 )}
               </>
